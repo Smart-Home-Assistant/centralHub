@@ -24,6 +24,8 @@
 /* USER CODE BEGIN Includes */
 #include<string.h>
 #include<stdio.h>
+
+#include "usart.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +47,9 @@
 /* USER CODE BEGIN PV */
 int buttonReady = 1;
 
+int isLightON = 0;
+int isDoorOPEN = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,7 +64,7 @@ int buttonReady = 1;
 
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim3;
-extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
 
@@ -228,20 +233,6 @@ void TIM3_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles USART1 global interrupt.
-  */
-void USART1_IRQHandler(void)
-{
-  /* USER CODE BEGIN USART1_IRQn 0 */
-
-  /* USER CODE END USART1_IRQn 0 */
-  HAL_UART_IRQHandler(&huart1);
-  /* USER CODE BEGIN USART1_IRQn 1 */
-
-  /* USER CODE END USART1_IRQn 1 */
-}
-
-/**
   * @brief This function handles USART3 global interrupt.
   */
 void USART3_IRQHandler(void)
@@ -263,9 +254,25 @@ void EXTI15_10_IRQHandler(void)
   /* USER CODE BEGIN EXTI15_10_IRQn 0 */
 //	HAL_GPIO_TogglePin(lightStatus_GPIO_Port, lightStatus_Pin);
 	if(buttonReady){
-		buttonReady = 0;
+	       //TODO: move this into the interrupt driven code / when database tells to send command to peripheral
+	    if (isDoorOPEN) {
+	        HAL_UART_Transmit(&huart3, (uint8_t *)"CLOSE", strlen("CLOSE"), HAL_MAX_DELAY);
+	        isDoorOPEN = 0;
+	    } else {
+	        HAL_UART_Transmit(&huart3, (uint8_t *)"OPEN", strlen("OPEN"), HAL_MAX_DELAY);
+	        isDoorOPEN = 1;
+	    }
 
-		HAL_GPIO_TogglePin(lightStatus_GPIO_Port, lightStatus_Pin);
+	    // Button is pressed, toggle the state
+	    if (isLightON) {
+	        HAL_UART_Transmit(&huart4, (uint8_t *)"OFF", strlen("OFF"), HAL_MAX_DELAY);
+	        isLightON = 0;
+	    } else {
+	        HAL_UART_Transmit(&huart4, (uint8_t *)"ON", strlen("ON"), HAL_MAX_DELAY);
+	        isLightON = 1;
+	    }
+
+	    buttonReady = 0;
 
 		  if(HAL_TIM_Base_Start_IT(&htim3) != HAL_OK){
 			  Error_Handler();
@@ -277,6 +284,20 @@ void EXTI15_10_IRQHandler(void)
   /* USER CODE BEGIN EXTI15_10_IRQn 1 */
 
   /* USER CODE END EXTI15_10_IRQn 1 */
+}
+
+/**
+  * @brief This function handles UART4 global interrupt.
+  */
+void UART4_IRQHandler(void)
+{
+  /* USER CODE BEGIN UART4_IRQn 0 */
+
+  /* USER CODE END UART4_IRQn 0 */
+  HAL_UART_IRQHandler(&huart4);
+  /* USER CODE BEGIN UART4_IRQn 1 */
+
+  /* USER CODE END UART4_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */

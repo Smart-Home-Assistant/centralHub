@@ -57,31 +57,26 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// TODO put this elsewhere
 uint8_t data[64];
-int isLightON = 0;
-int isDoorOPEN = 0;
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 	if (strncmp((char *)data, "Light is ON", strlen("Light is ON")) == 0) {
 	        HAL_GPIO_WritePin(lightStatus_GPIO_Port, lightStatus_Pin, GPIO_PIN_SET);
-	        isLightON = 1;
 	}
 
 	else if (strncmp((char *)data, "Light is OFF", strlen("Light is OFF")) == 0) {
 	        HAL_GPIO_WritePin(lightStatus_GPIO_Port, lightStatus_Pin, GPIO_PIN_RESET);
-	        isLightON = 0;
 	}
 
 	if (strncmp((char *)data, "Door is OPEN", strlen("Door is OPEN")) == 0) {
 			HAL_GPIO_WritePin(doorStatus_GPIO_Port, doorStatus_Pin, GPIO_PIN_SET);
-	        isDoorOPEN = 1;
 	}
 
 	else if (strncmp((char *)data, "Door is CLOSED", strlen("Door is CLOSED")) == 0) {
 			HAL_GPIO_WritePin(doorStatus_GPIO_Port, doorStatus_Pin, GPIO_PIN_RESET);
-	        isDoorOPEN = 0;
 	}
-
 
 
 	HAL_UARTEx_ReceiveToIdle_IT(huart, data, 64);
@@ -117,14 +112,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART1_UART_Init();
   MX_USART3_UART_Init();
   MX_TIM3_Init();
+  MX_UART4_Init();
   /* USER CODE BEGIN 2 */
 
   // UART Interrupt Init
   // LIGHT
-  HAL_UARTEx_ReceiveToIdle_IT(&huart1, data, 64);
+  HAL_UARTEx_ReceiveToIdle_IT(&huart4, data, 64);
 
   // DOOR
   HAL_UARTEx_ReceiveToIdle_IT(&huart3, data, 64);
@@ -133,28 +128,13 @@ int main(void)
   HAL_GPIO_WritePin(lightStatus_GPIO_Port, lightStatus_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(doorStatus_GPIO_Port, doorStatus_Pin, GPIO_PIN_SET);
 
-  // TODO: status LED for door
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	      // TODO: move this into the interrupt driven code / when database tells to send command to peripheral
-          if (isDoorOPEN) {
-              HAL_UART_Transmit(&huart3, (uint8_t *)"CLOSE", strlen("CLOSE"), HAL_MAX_DELAY);
-          } else {
-        	  //  HAL_GPIO_WritePin(doorStatus_GPIO_Port, doorStatus_Pin, GPIO_PIN_RESET);
-              HAL_UART_Transmit(&huart3, (uint8_t *)"OPEN", strlen("OPEN"), HAL_MAX_DELAY);
-          }
 
-          // Button is pressed, toggle the state
-          if (isLightON) {
-              HAL_UART_Transmit(&huart1, (uint8_t *)"OFF", strlen("OFF"), HAL_MAX_DELAY);
-          } else {
-              HAL_UART_Transmit(&huart1, (uint8_t *)"ON", strlen("ON"), HAL_MAX_DELAY);
-          }
 
     /* USER CODE END WHILE */
 
