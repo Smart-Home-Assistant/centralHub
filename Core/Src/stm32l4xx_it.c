@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2023 STMicroelectronics.
+  * Copyright (c) 2024 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -25,7 +25,7 @@
 #include<string.h>
 #include<stdio.h>
 
-#include "usart.h"
+#include "fatfs.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,7 +35,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define RECORDING_SIZE 37785
+#define RECORDING_SIZE_MIC 16000
+#define AUDIO_BUFFER_SIZE 1000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,10 +47,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-int buttonReady = 1;
 
+int buttonReady = 1;
 int isLightON = 0;
 int isDoorOPEN = 0;
+
+tTwoByte newSample;
+
+int sample_position = 22;
 
 /* USER CODE END PV */
 
@@ -63,11 +69,24 @@ int isDoorOPEN = 0;
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern DAC_HandleTypeDef hdac1;
+extern DMA_HandleTypeDef hdma_dfsdm1_flt1;
 extern TIM_HandleTypeDef htim3;
 extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
+extern DAC_HandleTypeDef hdac1;
 
+extern uint16_t Timer1, Timer2;
+
+extern uint16_t recording[];
+extern int mic_transfer_complete;
+
+extern int samples_played;
+extern int16_t playback_buffer[];
+extern int buffer_half;
+extern int buffer_complete;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -193,7 +212,10 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */
-
+	if(Timer1 > 0)
+	  Timer1--;
+	if(Timer2 > 0)
+	  Timer2--;
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
@@ -209,27 +231,84 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles DMA1 channel5 global interrupt.
+  */
+void DMA1_Channel5_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel5_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel5_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_dfsdm1_flt1);
+  /* USER CODE BEGIN DMA1_Channel5_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel5_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM2 global interrupt.
+  */
+void TIM2_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM2_IRQn 0 */
+
+	if (LL_TIM_IsActiveFlag_UPDATE(TIM2)){
+		LL_TIM_ClearFlag_UPDATE(TIM2);
+		newSample.uShort = (uint16_t)32768 + playback_buffer[sample_position];
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (newSample.uShort>>4));
+
+		sample_position++;
+		samples_played++;
+
+		if (sample_position == AUDIO_BUFFER_SIZE){
+			buffer_half = 1;
+		}
+		if (sample_position == AUDIO_BUFFER_SIZE * 2){
+			buffer_complete = 1;
+			sample_position = 0;
+		}
+
+	}
+	return;
+  /* USER CODE END TIM2_IRQn 0 */
+  /* USER CODE BEGIN TIM2_IRQn 1 */
+
+  /* USER CODE END TIM2_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM3 global interrupt.
   */
 void TIM3_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM3_IRQn 0 */
-	//HAL_GPIO_TogglePin(lightStatus_GPIO_Port, lightStatus_Pin);
 
   if(!buttonReady){
-	  buttonReady = 1;
+	buttonReady = 1;
   }
-
-  // Disable the TIM3 interrupt
 
   /* USER CODE END TIM3_IRQn 0 */
   HAL_TIM_IRQHandler(&htim3);
   /* USER CODE BEGIN TIM3_IRQn 1 */
+
   if (HAL_TIM_Base_Stop_IT(&htim3) != HAL_OK) {
     Error_Handler();
   }
 
   /* USER CODE END TIM3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles USART1 global interrupt.
+  */
+void USART1_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART1_IRQn 0 */
+
+  /* USER CODE END USART1_IRQn 0 */
+  HAL_UART_IRQHandler(&huart1);
+  /* USER CODE BEGIN USART1_IRQn 1 */
+
+  /* USER CODE END USART1_IRQn 1 */
 }
 
 /**
@@ -243,6 +322,7 @@ void USART3_IRQHandler(void)
   HAL_UART_IRQHandler(&huart3);
   /* USER CODE BEGIN USART3_IRQn 1 */
 
+
   /* USER CODE END USART3_IRQn 1 */
 }
 
@@ -252,33 +332,7 @@ void USART3_IRQHandler(void)
 void EXTI15_10_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI15_10_IRQn 0 */
-//	HAL_GPIO_TogglePin(lightStatus_GPIO_Port, lightStatus_Pin);
-	if(buttonReady){
-	       //TODO: move this into the interrupt driven code / when database tells to send command to peripheral
-	    if (isDoorOPEN) {
-	        HAL_UART_Transmit(&huart3, (uint8_t *)"CLOSE", strlen("CLOSE"), HAL_MAX_DELAY);
-	        isDoorOPEN = 0;
-	    } else {
-	        HAL_UART_Transmit(&huart3, (uint8_t *)"OPEN", strlen("OPEN"), HAL_MAX_DELAY);
-	        isDoorOPEN = 1;
-	    }
 
-	    // Button is pressed, toggle the state
-	    if (isLightON) {
-	        HAL_UART_Transmit(&huart4, (uint8_t *)"OFF", strlen("OFF"), HAL_MAX_DELAY);
-	        isLightON = 0;
-	    } else {
-	        HAL_UART_Transmit(&huart4, (uint8_t *)"ON", strlen("ON"), HAL_MAX_DELAY);
-	        isLightON = 1;
-	    }
-
-	    buttonReady = 0;
-
-		  if(HAL_TIM_Base_Start_IT(&htim3) != HAL_OK){
-			  Error_Handler();
-		  }
-
-	}
   /* USER CODE END EXTI15_10_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(userControl_Pin);
   /* USER CODE BEGIN EXTI15_10_IRQn 1 */
@@ -298,6 +352,20 @@ void UART4_IRQHandler(void)
   /* USER CODE BEGIN UART4_IRQn 1 */
 
   /* USER CODE END UART4_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM6 global interrupt, DAC channel1 and channel2 underrun error interrupts.
+  */
+void TIM6_DAC_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM6_DAC_IRQn 0 */
+
+  /* USER CODE END TIM6_DAC_IRQn 0 */
+  HAL_DAC_IRQHandler(&hdac1);
+  /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
+
+  /* USER CODE END TIM6_DAC_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */

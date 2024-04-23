@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2023 STMicroelectronics.
+  * Copyright (c) 2024 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -28,6 +28,18 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32l4xx_hal.h"
+
+#include "stm32l4xx_ll_tim.h"
+#include "stm32l4xx_ll_bus.h"
+#include "stm32l4xx_ll_cortex.h"
+#include "stm32l4xx_ll_rcc.h"
+#include "stm32l4xx_ll_system.h"
+#include "stm32l4xx_ll_utils.h"
+#include "stm32l4xx_ll_pwr.h"
+#include "stm32l4xx_ll_gpio.h"
+#include "stm32l4xx_ll_dma.h"
+
+#include "stm32l4xx_ll_exti.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -64,6 +76,8 @@ void Error_Handler(void);
 #define doorStatus_GPIO_Port GPIOA
 #define lightStatus_Pin GPIO_PIN_1
 #define lightStatus_GPIO_Port GPIOA
+#define ChipSelectSD_Pin GPIO_PIN_12
+#define ChipSelectSD_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
