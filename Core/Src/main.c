@@ -36,9 +36,8 @@
 /* USER CODE BEGIN PD */
 #define DEFAULT_STARTUP_VAL (0x80)
 #define USE_DAC 1
-#define RECORDING_SIZE 37785
-#define RECORDING_SIZE_MIC 10
-#define DFSDM_BUFFER_SIZE 500
+#define RECORDING_SIZE_MIC 1000
+#define DFSDM_BUFFER_SIZE 1000
 #define AUDIO_BUFFER_SIZE 1000
 
 #define SaturaLH(N, L, H) (((N)<(L))?(L):(((N)>(H))?(H):(N)))
@@ -56,6 +55,7 @@ DFSDM_Filter_HandleTypeDef hdfsdm1_filter1;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel0;
 DMA_HandleTypeDef hdma_dfsdm1_flt1;
 
+SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim3;
@@ -68,6 +68,7 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 // Microphone
 int recording_audio = 0;
+int finished_recording = 0;
 int16_t recording[RECORDING_SIZE_MIC];
 int32_t dfsdm_buffer[DFSDM_BUFFER_SIZE * 2];
 
@@ -75,10 +76,18 @@ int mic_transfer_complete = 0;
 int mic_half_transfer = 0;
 int transfer_position = 0;
 
+uint8_t header_data[] = {
+    0x52, 0x49, 0x46, 0x46, 0x24, 0xE8, 0x03, 0x00,
+    0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20,
+    0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x80, 0x3E, 0x00, 0x00, 0x00, 0x7D, 0x00, 0x00,
+    0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61,
+    0x00, 0xE8, 0x03, 0x00
+};
+
 // AudioPlayback
 int audio_playing = 0;
 int audio_position = 0;
-DWORD initial_file_pointer;
 int song_length = 0;
 int song_length_total = 0;
 int buffer_half = 0;
@@ -89,7 +98,9 @@ int16_t playback_buffer[AUDIO_BUFFER_SIZE*2];
 char *recordingPath = "/songs/song1.wav";
 
 UINT bytesRead;
+UINT bytesWritten;
 UINT bytes_to_read = AUDIO_BUFFER_SIZE * 2;
+UINT bytes_to_record = RECORDING_SIZE_MIC * 2;
 
 //SD Card Variables
 FATFS       FatFs;
@@ -117,6 +128,7 @@ static void MX_UART4_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_DFSDM1_Init(void);
+static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter);
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter);
@@ -249,6 +261,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USART1_UART_Init();
   MX_DFSDM1_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -278,43 +291,53 @@ int main(void)
   HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
   HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0x7FF);
 
-  /*
-  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1,dfsdm_buffer,DFSDM_BUFFER_SIZE * 2) != HAL_OK){
-	  printf("Failed to start DFSDM");
-  }
-  */
-
-  uint32_t i;
 
   while (1){
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 	  if (recording_audio){
+		  /*
 		  if ((transfer_position == RECORDING_SIZE_MIC)){
 			  __HAL_DMA_DISABLE(&hdma_dfsdm1_flt1);
 
-			  /*
 			  printf("\r\n\n");
 			  for (int i = 0; i < RECORDING_SIZE_MIC; i++){
 				  printf("%04X ", ((recording[i] & 0xFF) << 8) | ((recording[i] >> 8) & 0xFF));
 			  }
 			  printf("\r\n\n");
-			  */
 
 			  return 1;
 		  }
+		  */
+		  if (finished_recording){
+			  __HAL_DMA_DISABLE(&hdma_dfsdm1_flt1);
+			  printf("Finished Recording Audio\r\n");
+			  recording_audio = 0;
+			  finished_recording = 0;
+			  f_close(&file);
+		  }
 		  if(mic_half_transfer){
-			  for (i = 0; i < DFSDM_BUFFER_SIZE; i++){
-				  recording[transfer_position] = SaturaLH((dfsdm_buffer[i] >> 8), -32768, 32767);
-				  transfer_position ++;
+			  for (int i = 0; i < DFSDM_BUFFER_SIZE; i++){
+				  recording[i] = SaturaLH((dfsdm_buffer[i] >> 8), -32768, 32767);
+				  //transfer_position ++;
+			  }
+			  if (f_write(&file, recording, bytes_to_record, &bytesWritten) != FR_OK) {
+				  printf("Error Writing To File 1.\n");
+				  f_close(&file);
+				  return 1;
 			  }
 			  mic_half_transfer = 0;
 		  }
-		  if (mic_transfer_complete){
-			  for (i = DFSDM_BUFFER_SIZE; i < DFSDM_BUFFER_SIZE * 2; i++){
-				  recording[transfer_position] = SaturaLH((dfsdm_buffer[i] >> 8), -32768, 32767);
-				  transfer_position ++;
+		  else if (mic_transfer_complete){
+			  for (int i = DFSDM_BUFFER_SIZE; i < DFSDM_BUFFER_SIZE * 2; i++){
+				  recording[i - DFSDM_BUFFER_SIZE] = SaturaLH((dfsdm_buffer[i] >> 8), -32768, 32767);
+				  //transfer_position ++;
+			  }
+			  if (f_write(&file, recording, bytes_to_record, &bytesWritten) != FR_OK) {
+				  printf("Error Writing to File 2.\n");
+				  f_close(&file);
+				  return 1;
 			  }
 			  mic_transfer_complete = 0;
 		  }
@@ -484,6 +507,46 @@ static void MX_DFSDM1_Init(void)
   /* USER CODE BEGIN DFSDM1_Init 2 */
 
   /* USER CODE END DFSDM1_Init 2 */
+
+}
+
+/**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 7;
+  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
 
 }
 
@@ -841,6 +904,7 @@ int fputc(int ch, FILE *f)
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+/*
 	  open_SD_card_song(recordingPath);
 	  read_SD_card_song_initial();
 	  printf("Starting Playback \r\n");
@@ -848,6 +912,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	  song_length_total = song_length;
 	  LL_TIM_EnableIT_UPDATE(TIM2);
 	  LL_TIM_EnableCounter(TIM2);
+*/
+
+	if (recording_audio == 0){
+	    if (f_open(&file, "recording1.wav", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
+	        printf("Error opening file for writing.\n\r");
+	    }
+	    if (f_write(&file, header_data, sizeof(header_data), &bytesWritten) != FR_OK) {
+	        printf("Error writing header to file.\n");
+	    }
+		if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1,dfsdm_buffer,DFSDM_BUFFER_SIZE * 2) != HAL_OK){
+			printf("Failed to start DFSDM");
+		}
+		recording_audio = 1;
+	} else if (recording_audio == 1){
+		finished_recording = 1;
+	}
+
 
 }
 

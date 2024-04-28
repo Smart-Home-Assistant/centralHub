@@ -1,3 +1,5 @@
+../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_ll_tim.h:4074:22:LL_TIM_ClearFlag_UPDATE	1
+../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_ll_tim.h:4085:26:LL_TIM_IsActiveFlag_UPDATE	2
 ../Core/Src/stm32l4xx_it.c:98:6:NMI_Handler	1
 ../Core/Src/stm32l4xx_it.c:113:6:HardFault_Handler	1
 ../Core/Src/stm32l4xx_it.c:128:6:MemManage_Handler	1
