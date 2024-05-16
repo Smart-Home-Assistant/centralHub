@@ -34,11 +34,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ARDUINO_CS_PORT      GPIOA
+#define ARDUINO_CS_PIN     GPIO_PIN_6
+
 #define DEFAULT_STARTUP_VAL (0x80)
 #define USE_DAC 1
 #define RECORDING_SIZE_MIC 1000
 #define DFSDM_BUFFER_SIZE 1000
 #define AUDIO_BUFFER_SIZE 1000
+#define HEADER_SIZE 44
 
 #define SaturaLH(N, L, H) (((N)<(L))?(L):(((N)>(H))?(H):(N)))
 /* USER CODE END PD */
@@ -66,6 +70,9 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+// General Program
+int error = 0;
+
 // Microphone
 int recording_audio = 0;
 int finished_recording = 0;
@@ -357,6 +364,11 @@ int main(void)
 			  read_SD_card_song_at_position(AUDIO_BUFFER_SIZE);
 			  buffer_complete = 0;
 		  }
+	  }
+	  if (error){
+		  printf("There has been an error\r\n Terminating Program\r\n");
+		  unmount_SD_card();
+		  return -1;
 	  }
 
   }
@@ -795,7 +807,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 9600;
+  huart3.Init.BaudRate = 115200;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -848,7 +860,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, doorStatus_Pin|lightStatus_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, doorStatus_Pin|lightStatus_Pin|NANOcsPIn_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(ChipSelectSD_GPIO_Port, ChipSelectSD_Pin, GPIO_PIN_RESET);
@@ -859,8 +871,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(userControl_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : doorStatus_Pin lightStatus_Pin */
-  GPIO_InitStruct.Pin = doorStatus_Pin|lightStatus_Pin;
+  /*Configure GPIO pins : doorStatus_Pin lightStatus_Pin NANOcsPIn_Pin */
+  GPIO_InitStruct.Pin = doorStatus_Pin|lightStatus_Pin|NANOcsPIn_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -929,8 +941,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 		finished_recording = 1;
 	}
 
-
+/*
+	HAL_GPIO_WritePin(ARDUINO_CS_PORT, ARDUINO_CS_PIN, GPIO_PIN_RESET);
+	if (HAL_SPI_Transmit(&hspi1, header_data, HEADER_SIZE, HAL_MAX_DELAY) != HAL_OK){
+		printf("SPI Transfer Failed\r\n");
+		HAL_GPIO_WritePin(ARDUINO_CS_PORT, ARDUINO_CS_PIN, GPIO_PIN_SET);
+		error = 1;
+	} else {
+		printf("Sent message\r\n");
+		HAL_GPIO_WritePin(ARDUINO_CS_PORT, ARDUINO_CS_PIN, GPIO_PIN_SET);
+	}
+*/
 }
+
 
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
@@ -942,22 +965,9 @@ void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filt
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
-	if (strncmp((char*)data, "LIGHT_ON\r\n", strlen("LIGHT_ON\r\n")) == 0) {
-	        HAL_UART_Transmit(&huart4, (uint8_t*)"ON", strlen("ON"), HAL_MAX_DELAY);
+	if (strncmp((char*)data, "ACK1\r\n", strlen("ACK1\r\n")) == 0) {
+	        printf("alex wrote this\r\n");
 	}
-
-	else if (strncmp((char*)data, "LIGHT_OFF\r\n", strlen("LIGHT_OFF\r\n")) == 0) {
-	        HAL_UART_Transmit(&huart4, (uint8_t *)"OFF", strlen("OFF"), HAL_MAX_DELAY);
-	}
-
-	if (strncmp((char*)data, "DOOR_OPEN\r\n", strlen("DOOR_OPEN\r\n")) == 0) {
-	    HAL_UART_Transmit(&huart3, (uint8_t *)"OPEN", strlen("OPEN"), HAL_MAX_DELAY);
-	}
-
-	else if (strncmp((char*)data, "DOOR_CLOSE\r\n", strlen("DOOR_CLOSE\r\n")) == 0) {
-	    HAL_UART_Transmit(&huart3, (uint8_t *)"CLOSE", strlen("CLOSE"), HAL_MAX_DELAY);
-	}
-
 
 	    HAL_UARTEx_ReceiveToIdle_IT(huart, data, 64);
 }

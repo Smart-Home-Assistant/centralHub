@@ -76,6 +76,8 @@ void Error_Handler(void);
 #define doorStatus_GPIO_Port GPIOA
 #define lightStatus_Pin GPIO_PIN_1
 #define lightStatus_GPIO_Port GPIOA
+#define NANOcsPIn_Pin GPIO_PIN_6
+#define NANOcsPIn_GPIO_Port GPIOA
 #define ChipSelectSD_Pin GPIO_PIN_12
 #define ChipSelectSD_GPIO_Port GPIOB
 
