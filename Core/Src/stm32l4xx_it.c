@@ -38,6 +38,7 @@
 #define RECORDING_SIZE 37785
 #define RECORDING_SIZE_MIC 16000
 #define AUDIO_BUFFER_SIZE 1000
+#define DIVISION_FACTOR 20
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -253,7 +254,7 @@ void TIM2_IRQHandler(void)
 
 	if (LL_TIM_IsActiveFlag_UPDATE(TIM2)){
 		LL_TIM_ClearFlag_UPDATE(TIM2);
-		newSample.uShort = (uint16_t)32768 + playback_buffer[sample_position];
+		newSample.uShort = ((uint16_t)32768 + playback_buffer[sample_position]) / DIVISION_FACTOR;
 		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, (newSample.uShort>>4));
 
 		sample_position++;

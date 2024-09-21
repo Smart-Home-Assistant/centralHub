@@ -44,6 +44,8 @@
 #define AUDIO_BUFFER_SIZE 1000
 #define HEADER_SIZE 44
 
+#define MAX_RECORDING_LENGTH 128044
+
 #define SaturaLH(N, L, H) (((N)<(L))?(L):(((N)>(H))?(H):(N)))
 /* USER CODE END PD */
 
@@ -82,6 +84,7 @@ int32_t dfsdm_buffer[DFSDM_BUFFER_SIZE * 2];
 int mic_transfer_complete = 0;
 int mic_half_transfer = 0;
 int transfer_position = 0;
+int start_recording_process = 0;
 
 uint8_t header_data[] = {
     0x52, 0x49, 0x46, 0x46, 0x24, 0xE8, 0x03, 0x00,
@@ -92,9 +95,10 @@ uint8_t header_data[] = {
     0x00, 0xE8, 0x03, 0x00
 };
 
+int bytes_written_to_file = 0;
 // AudioPlayback
 int audio_playing = 0;
-int audio_position = 0;
+int audio_position = 44;
 int song_length = 0;
 int song_length_total = 0;
 int buffer_half = 0;
@@ -102,7 +106,17 @@ int buffer_complete = 0;
 int samples_played = 44;
 
 int16_t playback_buffer[AUDIO_BUFFER_SIZE*2];
-char *recordingPath = "/songs/song1.wav";
+
+
+char *recordingPath = "";
+char *LIGHTONAUDIO = "/sounds/light_on.wav";
+char *LIGHTOFFAUDIO = "/sounds/light_off.wav";
+char *DOOROPENAUDIO = "/sounds/door_open.wav";
+char *DOORCLOSEAUDIO = "/sounds/door_close.wav";
+char *MICON = "/sounds/listen_on.wav";
+char *MICOFF = "/sounds/stop_listen.wav";
+
+start_playback_process = 0;
 
 UINT bytesRead;
 UINT bytesWritten;
@@ -118,6 +132,7 @@ BYTE* 		loaded_song;
 
 //UART Variables
 uint8_t data[64];
+int data_ready = 0;
 
 
 /* USER CODE END PV */
@@ -145,6 +160,32 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void start_recording_from_mic(){
+	if (!recording_audio){
+		printf("Starting Recording Process\r\n");
+		if (f_open(&file, "recording1.wav", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
+			printf("Error opening file for writing.\n\r");
+		}
+		if (f_write(&file, header_data, sizeof(header_data), &bytesWritten) != FR_OK) {
+			printf("Error writing header to file.\n");
+		}
+		recording_audio = 1;
+		start_recording_process = 0;
+	}
+}
+void start_audio_playback(){
+	if (!audio_playing){
+		open_SD_card_song(recordingPath);
+		read_SD_card_song_initial();
+		printf("Starting Playback \r\n");
+		audio_playing = 1;
+		start_playback_process = 0;
+		song_length_total = song_length;
+		LL_TIM_EnableIT_UPDATE(TIM2);
+		LL_TIM_EnableCounter(TIM2);
+		NVIC_EnableIRQ(TIM2_IRQn);
+	}
+}
 void mount_SD_card(void){
 
     //Mount the SD Card
@@ -207,6 +248,7 @@ void open_SD_card_song(const char *mypath){
 
 	fres = f_open(&file, songpath, FA_READ);
 	if (fres != FR_OK) {
+		printf("Failed opening file\r\n");
 		return;
 	}
 
@@ -235,6 +277,7 @@ void close_SD_card_song(void){
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -298,11 +341,21 @@ int main(void)
   HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
   HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0x7FF);
 
+  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1,dfsdm_buffer,DFSDM_BUFFER_SIZE * 2) != HAL_OK){
+	  printf("Failed to start DFSDM");
+  }
+
 
   while (1){
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  if (start_playback_process && !audio_playing){
+		  start_audio_playback();
+	  }
+	  if (start_recording_process && !start_playback_process && !audio_playing){
+		  start_recording_from_mic();
+	  }
 	  if (recording_audio){
 		  /*
 		  if ((transfer_position == RECORDING_SIZE_MIC)){
@@ -317,44 +370,64 @@ int main(void)
 			  return 1;
 		  }
 		  */
-		  if (finished_recording){
-			  __HAL_DMA_DISABLE(&hdma_dfsdm1_flt1);
+		  if (finished_recording || bytes_written_to_file >= MAX_RECORDING_LENGTH){
 			  printf("Finished Recording Audio\r\n");
 			  recording_audio = 0;
 			  finished_recording = 0;
+			  mic_half_transfer = 0;
+			  mic_transfer_complete = 0;
+			  bytes_written_to_file = 0;
+			  f_close(&file);
+
+			  HAL_UART_Transmit(&huart3, header_data, HEADER_SIZE, HAL_MAX_DELAY);
+			  int bytes_read = 44;
+			  uint8_t block[10000];
+			  open_SD_card_song("recording1.wav");
+			  while (bytes_read < 128044){
+				  if (f_read(&file, &block[0], 10000, &bytesRead) == FR_OK) {
+				 	HAL_UART_Transmit(&huart3, block, 10000, HAL_MAX_DELAY);
+				 	//printf("Sent Data to Arduino\r\n");
+				 	bytes_read += 10000;
+				  }
+			  }
 			  f_close(&file);
 		  }
 		  if(mic_half_transfer){
 			  for (int i = 0; i < DFSDM_BUFFER_SIZE; i++){
 				  recording[i] = SaturaLH((dfsdm_buffer[i] >> 8), -32768, 32767);
-				  //transfer_position ++;
 			  }
 			  if (f_write(&file, recording, bytes_to_record, &bytesWritten) != FR_OK) {
 				  printf("Error Writing To File 1.\n");
 				  f_close(&file);
 				  return 1;
 			  }
+			  bytes_written_to_file+= DFSDM_BUFFER_SIZE * 2;
 			  mic_half_transfer = 0;
 		  }
 		  else if (mic_transfer_complete){
 			  for (int i = DFSDM_BUFFER_SIZE; i < DFSDM_BUFFER_SIZE * 2; i++){
 				  recording[i - DFSDM_BUFFER_SIZE] = SaturaLH((dfsdm_buffer[i] >> 8), -32768, 32767);
-				  //transfer_position ++;
 			  }
 			  if (f_write(&file, recording, bytes_to_record, &bytesWritten) != FR_OK) {
 				  printf("Error Writing to File 2.\n");
 				  f_close(&file);
 				  return 1;
 			  }
+			  bytes_written_to_file+= DFSDM_BUFFER_SIZE * 2;
 			  mic_transfer_complete = 0;
 		  }
 	  }
 	  if (audio_playing){
-		  if (samples_played >= song_length_total/2){
+		  if (audio_position >= song_length_total - AUDIO_BUFFER_SIZE * 2){
 			  NVIC_DisableIRQ(TIM2_IRQn);
 			  LL_TIM_DisableCounter(TIM2);
 			  printf("Song Finished at %d\r\n", audio_position);
+			  f_close(&file);
 			  audio_playing = 0;
+			  audio_position = 44;
+			  samples_played = 44;
+			  buffer_half = 0;
+			  buffer_complete = 0;
 		  }
 		  if (buffer_half){
 			  read_SD_card_song_at_position(0);
@@ -807,7 +880,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = 2000000;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -916,7 +989,8 @@ int fputc(int ch, FILE *f)
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-/*
+	/*
+	if (!audio_playing){
 	  open_SD_card_song(recordingPath);
 	  read_SD_card_song_initial();
 	  printf("Starting Playback \r\n");
@@ -924,22 +998,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	  song_length_total = song_length;
 	  LL_TIM_EnableIT_UPDATE(TIM2);
 	  LL_TIM_EnableCounter(TIM2);
-*/
-
-	if (recording_audio == 0){
-	    if (f_open(&file, "recording1.wav", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
-	        printf("Error opening file for writing.\n\r");
-	    }
-	    if (f_write(&file, header_data, sizeof(header_data), &bytesWritten) != FR_OK) {
-	        printf("Error writing header to file.\n");
-	    }
-		if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter1,dfsdm_buffer,DFSDM_BUFFER_SIZE * 2) != HAL_OK){
-			printf("Failed to start DFSDM");
-		}
-		recording_audio = 1;
-	} else if (recording_audio == 1){
-		finished_recording = 1;
+	  NVIC_EnableIRQ(TIM2_IRQn);
 	}
+	*/
 
 /*
 	HAL_GPIO_WritePin(ARDUINO_CS_PORT, ARDUINO_CS_PIN, GPIO_PIN_RESET);
@@ -957,19 +1018,46 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-	mic_half_transfer = 1;
+	if (recording_audio){
+		mic_half_transfer = 1;
+	}
+
 }
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-	mic_transfer_complete = 1;
+	if( recording_audio){
+		mic_transfer_complete = 1;
+	}
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
-	if (strncmp((char*)data, "ACK1\r\n", strlen("ACK1\r\n")) == 0) {
-	        printf("alex wrote this\r\n");
+	if (strncmp((char*)data, "MIC_ON", strlen("MIC_ON")) == 0) {
+		printf("MIC_ON\r\n");
+		recordingPath = MICON;
+		start_playback_process = 1;
+		start_recording_process = 1;
 	}
-
-	    HAL_UARTEx_ReceiveToIdle_IT(huart, data, 64);
+	if (strncmp((char*)data, "LIGHT_ON", strlen("LIGHT_ON")) == 0) {
+		printf("LIGHT_ON\r\n");
+		recordingPath = LIGHTONAUDIO;
+		start_playback_process = 1;
+	}
+	if (strncmp((char*)data, "LIGHT_OFF", strlen("LIGHT_OFF")) == 0) {
+		printf("LIGHT_OFF\r\n");
+		recordingPath = LIGHTOFFAUDIO;
+		start_playback_process = 1;
+	}
+	if (strncmp((char*)data, "DOOR_OPEN", strlen("DOOR_OPEN")) == 0) {
+		printf("DOOR_OPEN\r\n");
+		recordingPath = DOOROPENAUDIO;
+		start_playback_process = 1;
+	}
+	if (strncmp((char*)data, "DOOR_CLOSE", strlen("DOOR_CLOSE")) == 0) {
+		printf("DOOR_CLOSE\r\n");
+		recordingPath = DOORCLOSEAUDIO;
+		start_playback_process = 1;
+	}
+	HAL_UARTEx_ReceiveToIdle_IT(huart, data, 64);
 }
 /* USER CODE END 4 */
 
